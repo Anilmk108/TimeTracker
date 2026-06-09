@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Dynamic Workspace Time Tracker</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; color: #333; }
+  .container { max-width: 650px; margin: auto; position: relative; }
+  .header, .edit-pane { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); margin-bottom: 20px; position: relative; }
+  .user-profile { display: flex; align-items: center; margin-bottom: 15px; background: #f8f9fa; padding: 6px 12px; border-radius: 50px; width: fit-content; border: 1px solid #eee; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; margin-right: 10px; border: 1.5px solid #fff; }
+  .user-email { font-size: 13px; font-weight: 600; color: #555; }
+  label { font-size: 11px; font-weight: 700; color: #777; display: block; margin-top: 12px; text-transform: uppercase; }
+  select, .edit-input, textarea, #taskSearch, .search-input-edit { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
+  
+  /* Highlight workspace selection */
+  .workspace-selector { background: #eff6ff; border: 2px solid #3b82f6; padding: 15px; border-radius: 8px; margin-bottom: 15px; }
+  .workspace-selector label { color: #1d4ed8; }
+
+  .version-badge { position: absolute; top: 15px; right: 20px; background: #10b981; color: white; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 50px; box-shadow: 0 2px 5px rgba(16,185,129,0.3); z-index: 10; }
+  .search-container { position: relative; }
+  .task-dropdown { display: none; position: absolute; z-index: 1000; width: 100%; background: white; border: 1px solid #ddd; border-top: none; border-radius: 0 0 8px 8px; max-height: 180px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+  .task-dropdown option { padding: 10px; cursor: pointer; }
+
+  .btn-group { display: flex; gap: 8px; margin-top: 15px; flex-wrap: wrap; }
+  button { cursor: pointer; border: none; border-radius: 8px; padding: 12px; font-weight: 700; flex: 1; transition: 0.2s; min-width: 80px; }
+  .btn-add { background: #2563eb; color: white; flex: 2; }
+  .btn-save { background: #10b981; color: white; }
+  .btn-cancel { background: #f1f5f9; color: #475569; }
+  .task-card { background: white; padding: 20px; border-radius: 12px; margin-bottom: 15px; border-left: 6px solid #e2e8f0; box-shadow: 0 4px 6px rgba(0,0,0,0.04); position: relative; }
+  .task-card.running { border-left-color: #10b981; background: #f0fdf4; }
+  .timer { font-family: monospace; font-size: 32px; font-weight: 700; margin: 10px 0; color: #1e293b; }
+  .btn-play { background: #10b981; color: white; }
+  .btn-pause { background: #f59e0b; color: white; }
+  .btn-edit-inline { background: #f1f5f9; color: #475569; }
+ 
+  #statsPanel { background: #1e293b; color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 15px; }
+  .stat-card { background: rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; border-left: 4px solid #3b82f6; }
+  .total-summary { font-size: 18px; font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 10px; margin-bottom: 10px; display: flex; justify-content: space-between; }
+ 
+  .evolve-container { background: #eff6ff; border: 1px dashed #bfdbfe; padding: 12px; border-radius: 8px; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<div class="header">
+  <div class="version-badge">version 03 {AK}</div>
+
+  <div class="user-profile">
+    <img id="headerAvatar" src="" class="avatar">
+    <span id="headerEmail" class="user-email">Loading User...</span>
+  </div>
+  <h2>gUP Time Tracker</h2>
+
+  <div class="workspace-selector">
+    <label>Active Project Workspace</label>
+    <select id="workspaceSelect" onchange="switchWorkspace(this.value)">
+      </select>
+  </div>
+ 
+  <label>Role</label>
+  <select id="roleIn" onchange="updateTaskList('tIn', this.value); evaluateContextDisplay('taskSearch', 'evolvePanelMain', 'subTaskIn');">
+    <option value="">-- Select Role --</option>
+  </select>
+ 
+  <label>Task Type</label>
+  <div class="search-container">
+    <input type="text" id="taskSearch" placeholder="🔍 Search or select task..." onfocus="showTaskDropdown('tIn')" oninput="filterTasks('taskSearch', 'tIn')">
+    <select id="tIn" class="task-dropdown" size="6" onchange="selectTask('taskSearch', 'tIn', 'pIn', this.value); evaluateContextDisplay('taskSearch', 'evolvePanelMain', 'subTaskIn');"></select>
+  </div>
+ 
+  <div id="evolvePanelMain" class="evolve-container" style="display: none;">
+    <label id="subTaskLabelMain" style="color: #1e40af; margin-top: 0;">Sub-Task Type</label>
+    <select id="subTaskIn"></select>
+  </div>
+ 
+  <label>Project Dropdown</label>
+  <select id="pIn"></select>
+
+  <label>Notes (Optional)</label>
+  <textarea id="notesIn" placeholder="Add specific task details here..." rows="2"></textarea>
+ 
+  <div class="btn-group">
+    <button class="btn-add" onclick="addTask()">+ Add to List</button>
+    <button style="background:#f1f5f9;" onclick="clearAll()">Clear UI</button>
+  </div>
+ 
+  <div class="btn-group" style="border-top: 1px solid #eee; padding-top: 15px;">
+    <button id="bulkSyncBtn" style="background:#059669; color:white; flex: 2;" onclick="bulkSyncToSheet()">Sync All to Active Google Sheet</button>
+    <button style="background:#f1f5f9; color:#475569;" onclick="exportCurrentToCSV()">CSV Export</button>
+  </div>
+</div>
+
+<div id="statsPanel" style="display: none;">
+  <div class="total-summary">
+    <span>Current Records Summary</span>
+    <span id="total-day-time">00:00:00</span>
+  </div>
+  <div id="statsContent" class="stats-grid"></div>
+</div>
+
+<div id="dashboard"></div>
+</div>
+
+<script>
+// ==========================================
+// CENTRAL CONFIGURATION HUB FOR GITHUB HOSTING
+// Replace these with your actual names and Google Sheet IDs!
+// ==========================================
+const TRACKER_CONFIG = [
+  { name: "Project Anil Workspace", sheetId: "1L9L0rIPB3O-ZNeSWcE3p4EITQQm4SBhHdj0ARPXWr2s" },
+  { name: "Global Operations Team",  sheetId: "YOUR_SPREADSHEET_ID_BETA" }
+];
+
+let ACTIVE_SHEET_ID = "";
+let tasks = [];
+let projOptionsFromSheet = '';
+let currentRoleTasks = [];
+let taskMap = {};
+let subTaskMapID = {};
+
+const adhocProjects = ["Non Related Project Task", "Cognizant Activity", "Cognizant Meeting", "Engagement Activity", "HCM Meeting", "Email Management", "gUp Team Huddle", "ID/Training/LMS Meeting/Sync", "Innovation/Research/Training", "Lesson Learnt File", "MoM Preparation", "Onboarding", "Other Adhoc Tasks", "Process Document Creation", "Quality Meeting/Calibration"];
+
+window.onload = function() {
+  const wsSelect = document.getElementById('workspaceSelect');
+  wsSelect.innerHTML = TRACKER_CONFIG.map(conf => `<option value="${conf.sheetId}">${conf.name}</option>`).join('');
+
+  const lastSheetUsed = localStorage.getItem('active_tracker_sheet_id');
+  if (lastSheetUsed && TRACKER_CONFIG.some(c => c.sheetId === lastSheetUsed)) {
+    ACTIVE_SHEET_ID = lastSheetUsed;
+    wsSelect.value = ACTIVE_SHEET_ID;
+  } else {
+    ACTIVE_SHEET_ID = TRACKER_CONFIG[0].sheetId;
+  }
+
+  const saved = localStorage.getItem('taskTracker_vFinal_v11');
+  if (saved) { tasks = JSON.parse(saved); tasks.forEach(t => t.editing = false); }
+ 
+  google.script.run.withSuccessHandler(info => {
+    document.getElementById('headerAvatar').src = info.photoUrl;
+    document.getElementById('headerEmail').innerText = info.email;
+    render();
+  }).getUserInfo();
+
+  loadWorkspaceData(ACTIVE_SHEET_ID);
+ 
+  setInterval(heartbeat, 1000);
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.search-container')) {
+      const dropdowns = document.querySelectorAll('.task-dropdown');
+      dropdowns.forEach(d => d.style.display = 'none');
+    }
+  });
+};
+
+function loadWorkspaceData(sheetId) {
+  document.getElementById('pIn').innerHTML = '<option>Loading project fields...</option>';
+  document.getElementById('roleIn').innerHTML = '<option value="">-- Loading Roles... --</option>';
+  
+  google.script.run.withSuccessHandler(data => {
+    // 1. Load Projects
+    projOptionsFromSheet = data.projects.map(p => `<option value="${p}">${p}</option>`).join('');
+    document.getElementById('pIn').innerHTML = projOptionsFromSheet;
+    
+    // 2. Load Maps
+    taskMap = data.taskMap || {};
+    subTaskMapID = data.subTaskMap || {};
+
+    // 3. Dynamically build roles from sheet keys
+    const uniqueRoles = Object.keys(taskMap); 
+    
+    if (uniqueRoles.length > 0) {
+      let roleHtml = '<option value="">-- Select Role --</option>';
+      roleHtml += uniqueRoles.map(role => `<option value="${role}">${role}</option>`).join('');
+      document.getElementById('roleIn').innerHTML = roleHtml;
+    } else {
+      document.getElementById('roleIn').innerHTML = '<option value="">-- No Roles Found in Sheet --</option>';
+    }
+
+    document.getElementById('taskSearch').value = "";
+    updateTaskList('tIn', '');
+  }).getDropdownData(sheetId);
+}
+
+function switchWorkspace(newSheetId) {
+  if (tasks.some(t => t.running)) {
+    alert("Please pause running timers before changing target workspaces!");
+    document.getElementById('workspaceSelect').value = ACTIVE_SHEET_ID;
+    return;
+  }
+  ACTIVE_SHEET_ID = newSheetId;
+  localStorage.setItem('active_tracker_sheet_id', newSheetId);
+  loadWorkspaceData(newSheetId);
+}
+
+function evaluateContextDisplay(inputId, containerId, selectId) {
+  const val = document.getElementById(inputId).value;
+  const container = document.getElementById(containerId);
+  const select = document.getElementById(selectId);
+ 
+  if (subTaskMapID[val] && subTaskMapID[val].length > 0) {
+    select.innerHTML = subTaskMapID[val].map(st => `<option value="${st}">${st}</option>`).join('');
+    container.style.display = 'block';
+  } else {
+    container.style.display = 'none';
+    select.innerHTML = '';
+  }
+}
+
+function heartbeat() {
+  tasks.forEach(t => {
+    if (t.running && !t.editing) {
+      const totalSec = t.seconds + Math.floor((Date.now() - t.startTime) / 1000);
+      const el = document.getElementById(`time-${t.id}`);
+      if (el) el.innerText = format(totalSec);
+    }
+  });
+  updateVisuals();
+}
+
+function addTask() {
+  const r = document.getElementById('roleIn').value;
+  const p = document.getElementById('pIn').value;
+  const t = document.getElementById('taskSearch').value;
+  const n = document.getElementById('notesIn').value;
+  if(!r || !t) return alert("Select Role and Task Type");
+ 
+  let subValue = "";
+  if(subTaskMapID[t] && subTaskMapID[t].length > 0) {
+    subValue = document.getElementById('subTaskIn').value;
+  }
+
+  tasks.push({
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    role: r,
+    project: p,
+    task: t,
+    subTask: subValue,
+    notes: n,
+    seconds: 0,
+    running: false,
+    startTime: null,
+    createdDate: new Date().toLocaleDateString(),
+    editing: false,
+    targetWorkspaceSheetId: ACTIVE_SHEET_ID 
+  });
+ 
+  document.getElementById('taskSearch').value = "";
+  document.getElementById('notesIn').value = "";
+  document.getElementById('evolvePanelMain').style.display = 'none';
+  saveToStorage(); render();
+}
+
+function toggle(id, skipRender = false) {
+  const t = tasks.find(x => x.id === id);
+  if (t.running) {
+    t.seconds += Math.floor((Date.now() - t.startTime) / 1000);
+    t.startTime = null;
+    t.running = false;
+  } else {
+    t.startTime = Date.now();
+    t.running = true;
+  }
+  saveToStorage(); 
+  if(!skipRender) render();
+}
+
+function render() {
+  const dash = document.getElementById('dashboard');
+  dash.innerHTML = '';
+  tasks.forEach(t => {
+    const displaySec = t.running ? t.seconds + Math.floor((Date.now() - t.startTime)/1000) : t.seconds;
+    const div = document.createElement('div');
+    div.className = `task-card ${t.running ? 'running' : ''}`;
+   
+    if (t.editing) {
+      const showInlineEvolve = (subTaskMapID[t.task] && subTaskMapID[t.task].length > 0) ? "block" : "none";
+      const uniqueRoles = Object.keys(taskMap);
+      let roleOptionsHtml = uniqueRoles.map(role => `<option value="${role}" ${t.role === role ? 'selected' : ''}>${role}</option>`).join('');
+
+      div.innerHTML = `
+        <div class="edit-pane">
+          <label>Role</label>
+          <select id="er-${t.id}" onchange="updateTaskList('et-${t.id}', this.value); resetEditTaskField(${t.id}); evaluateContextDisplay('ets-${t.id}', 'evolvePanelEdit-${t.id}', 'subTaskEdit-${t.id}');">
+            ${roleOptionsHtml}
+          </select>
+         
+          <label>Task Type</label>
+          <div class="search-container">
+            <input type="text" id="ets-${t.id}" class="edit-input" value="${t.task}" onfocus="showTaskDropdown('et-${t.id}')" oninput="filterTasksEdit('ets-${t.id}', 'et-${t.id}', document.getElementById('er-${t.id}').value); evaluateContextDisplay('ets-${t.id}', 'evolvePanelEdit-${t.id}', 'subTaskEdit-${t.id}');">
+            <select id="et-${t.id}" class="task-dropdown" size="6" onchange="selectTask('ets-${t.id}', 'et-${t.id}', 'ep-${t.id}', this.value); evaluateContextDisplay('ets-${t.id}', 'evolvePanelEdit-${t.id}', 'subTaskEdit-${t.id}');"></select>
+          </div>
+
+          <div id="evolvePanelEdit-${t.id}" class="evolve-container" style="display: ${showInlineEvolve};">
+            <label style="color: #1e40af; margin-top: 0;">Sub-Task Type</label>
+            <select id="subTaskEdit-${t.id}"></select>
+          </div>
+
+          <label>Project</label>
+          <select id="ep-${t.id}"></select>
+         
+          <label>Time (HH:MM:SS)</label>
+          <input type="text" id="eti-${t.id}" class="edit-input" value="${format(displaySec)}">
+         
+          <label>Notes</label>
+          <textarea id="en-${t.id}" class="edit-input">${t.notes || ""}</textarea>
+         
+          <div class="btn-group">
+            <button class="btn-save" onclick="saveEdit(${t.id})">Save</button>
+            <button class="btn-cancel" onclick="cancelEdit(${t.id})">Cancel</button>
+          </div>
+        </div>`;
+    } else {
+      const workspaceProfile = TRACKER_CONFIG.find(c => c.sheetId === (t.targetWorkspaceSheetId || ACTIVE_SHEET_ID));
+      const wsLabel = workspaceProfile ? workspaceProfile.name : "Active Sheet";
+
+      div.innerHTML = `
+        <span>
+          <span style="font-size:10px; background:#dbeafe; color:#1e40af; padding:2px 6px; border-radius:4px; font-weight:bold;">📍 ${wsLabel}</span><br>
+          <strong style="display:inline-block; margin-top:5px;">${t.project}</strong><br>
+          <small style="color:#64748b;">${t.role} • ${t.task} ${t.subTask ? `[${t.subTask}]` : ''}</small>
+          ${t.notes ? `<br><small style="color:#2563eb;">Note: ${t.notes}</small>` : ''}
+        </span>
+        <div class="timer" id="time-${t.id}">${format(displaySec)}</div>
+        <div class="btn-group">
+          <button class="${t.running ? 'btn-pause' : 'btn-play'}" onclick="toggle(${t.id})">${t.running ? 'PAUSE' : 'PLAY'}</button>
+          <button class="btn-edit-inline" onclick="enterEditMode(${t.id})">EDIT</button>
+          <button data-submit-id="${t.id}" style="background:#10b981; color:white;" onclick="submitSingleTask(${t.id})">SUBMIT</button>
+          <button style="background:#fff1f2; color:#e11d48; flex:none; width:45px;" onclick="del(${t.id})">🗑️</button>
+        </div>`;
+    }
+    dash.appendChild(div);
+  });
+}
+
+function submitSingleTask(id) {
+  const t = tasks.find(x => x.id === id);
+  if (!t) return;
+  if (t.running) return alert("Please pause the task before submitting.");
+  
+  const targetId = t.targetWorkspaceSheetId || ACTIVE_SHEET_ID;
+  if (!confirm(`Do you want to submit this record to Google Sheets?`)) return;
+
+  const btn = document.querySelector(`[data-submit-id="${id}"]`);
+  if (btn) { btn.disabled = true; btn.innerText = "Saving..."; }
+
+  const payload = { ...t, formattedTime: format(t.seconds) };
+
+  google.script.run
+    .withSuccessHandler(() => {
+      tasks = tasks.filter(x => x.id !== id);
+      saveToStorage(); render();
+      alert("Task saved successfully!");
+    })
+    .withFailureHandler((err) => {
+      alert("Submission failed: " + err.message);
+      if (btn) { btn.disabled = false; btn.innerText = "SUBMIT"; }
+    })
+    .saveSingleTask(payload, targetId);
+}
+
+function bulkSyncToSheet() {
+  if (tasks.length === 0) return alert("No tasks to sync!");
+  if (tasks.some(t => t.running)) return alert("Please pause all tasks before syncing.");
+  if (!confirm("This will process items to their corresponding workspaces and clear this timeline view. Continue?")) return;
+
+  const syncBtn = document.getElementById('bulkSyncBtn');
+  syncBtn.disabled = true;
+  syncBtn.innerText = "Processing batch sorting...";
+
+  const groups = tasks.reduce((acc, currentTask) => {
+    const destId = currentTask.targetWorkspaceSheetId || ACTIVE_SHEET_ID;
+    if (!acc[destId]) acc[destId] = [];
+    acc[destId].push({ ...currentTask, formattedTime: format(currentTask.seconds) });
+    return acc;
+  }, {});
+
+  const promises = Object.keys(groups).map(destinationSheetId => {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(() => resolve(destinationSheetId))
+        .withFailureHandler((err) => reject(err))
+        .saveMultipleTasks(groups[destinationSheetId], destinationSheetId);
+    });
+  });
+
+  Promise.all(promises)
+    .then(() => {
+      tasks = [];
+      saveToStorage(); render();
+      syncBtn.disabled = false;
+      syncBtn.innerText = "Sync All to Active Google Sheet";
+      alert("Successfully synced all batch logs to their matching destination workbooks!");
+    })
+    .catch((err) => {
+      alert("Sync pipeline encountered errors: " + err.message);
+      syncBtn.disabled = false;
+      syncBtn.innerText = "Sync All to Active Google Sheet";
+    });
+}
+
+function showTaskDropdown(id) { document.getElementById(id).style.display = 'block'; }
+function filterTasks(inputId, selectId) {
+  const val = document.getElementById(inputId).value.toLowerCase();
+  const filtered = currentRoleTasks.filter(t => t.toLowerCase().includes(val));
+  const select = document.getElementById(selectId);
+  select.innerHTML = filtered.map(item => `<option value="${item}">${item}</option>`).join('');
+}
+
+function filterTasksEdit(inputId, selectId, activeRole) {
+  const val = document.getElementById(inputId).value.toLowerCase();
+  const roleTasks = (taskMap[activeRole] || []);
+  const filtered = roleTasks.filter(t => t.toLowerCase().includes(val));
+  const select = document.getElementById(selectId);
+  select.innerHTML = filtered.map(item => `<option value="${item}">${item}</option>`).join('');
+}
+
+function selectTask(inputId, selectId, projId, val) {
+  document.getElementById(inputId).value = val;
+  document.getElementById(selectId).style.display = 'none';
+  handleTaskChange(projId, val);
+}
+
+function handleTaskChange(targetProjId, taskValue) {
+  const projSelect = document.getElementById(targetProjId);
+  if (!projSelect) return;
+  if (taskValue === "Operational Tasks") {
+    projSelect.innerHTML = adhocProjects.map(p => `<option value="${p}">${p}</option>`).join('');
+  } else {
+    projSelect.innerHTML = projOptionsFromSheet;
+  }
+}
+
+function updateTaskList(targetId, role) {
+  currentRoleTasks = (taskMap[role] || []);
+  const select = document.getElementById(targetId);
+  if (select) select.innerHTML = currentRoleTasks.map(item => `<option value="${item}">${item}</option>`).join('');
+}
+
+function resetEditTaskField(id) {
+  const taskInput = document.getElementById(`ets-${id}`);
+  taskInput.value = "";
+  handleTaskChange(`ep-${id}`, "");
+}
+
+function enterEditMode(id) {
+  const t = tasks.find(x => x.id === id);
+  if (t.running) toggle(id, true);
+  t.editing = true;
+  render();
+ 
+  document.getElementById(`er-${id}`).value = t.role;
+  updateTaskList(`et-${id}`, t.role);
+  handleTaskChange(`ep-${id}`, t.task);
+  document.getElementById(`ep-${id}`).value = t.project;
+ 
+  if(subTaskMapID[t.task] && subTaskMapID[t.task].length > 0) {
+    const editSelect = document.getElementById(`subTaskEdit-${t.id}`);
+    editSelect.innerHTML = subTaskMapID[t.task].map(st => `<option value="${st}">${st}</option>`).join('');
+    if(t.subTask) editSelect.value = t.subTask;
+  }
+}
+
+function saveEdit(id) {
+  const t = tasks.find(x => x.id === id);
+  const inputtedTask = document.getElementById(`ets-${id}`).value;
+ 
+  if(!inputtedTask) return alert("Task Type cannot be empty!");
+ 
+  t.role = document.getElementById(`er-${id}`).value;
+  t.task = inputtedTask;
+  t.project = document.getElementById(`ep-${id}`).value;
+  t.notes = document.getElementById(`en-${id}`).value;
+ 
+  if(subTaskMapID[t.task] && subTaskMapID[t.task].length > 0) {
+    t.subTask = document.getElementById(`subTaskEdit-${id}`).value;
+  } else {
+    t.subTask = "";
+  }
+ 
+  const timeParts = document.getElementById(`eti-${id}`).value.split(':');
+  if(timeParts.length === 3) t.seconds = (parseInt(timeParts[0]) * 3600) + (parseInt(timeParts[1]) * 60) + (parseInt(timeParts[2]) || 0);
+  t.editing = false;
+  saveToStorage(); render();
+}
+
+function format(s) {
+  const h = Math.floor(s / 3600).toString().padStart(2, '0');
+  const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
+  const sec = (s % 60).toString().padStart(2, '0');
+  return `${h}:${m}:${sec}`;
+}
+
+function updateVisuals() {
+  const statsPanel = document.getElementById('statsPanel');
+  const statsContent = document.getElementById('statsContent');
+  const totalDayEl = document.getElementById('total-day-time');
+  if (tasks.length === 0) { statsPanel.style.display = 'none'; return; }
+  statsPanel.style.display = 'block';
+  const projTotals = {};
+  let totalDaySeconds = 0;
+  tasks.forEach(t => {
+    let sec = t.seconds + (t.running && !t.editing ? Math.floor((Date.now() - t.startTime) / 1000) : 0);
+    projTotals[t.project] = (projTotals[t.project] || 0) + sec;
+    totalDaySeconds += sec;
+  });
+  totalDayEl.innerText = format(totalDaySeconds);
+  statsContent.innerHTML = Object.entries(projTotals).map(([p, s]) => `<div class="stat-card"><small>${p}</small><strong>${format(s)}</strong></div>`).join('');
+}
+
+function saveToStorage() { localStorage.setItem('taskTracker_vFinal_v11', JSON.stringify(tasks)); }
+function del(id) { if(confirm("Delete this task?")) { tasks = tasks.filter(x => x.id !== id); saveToStorage(); render(); } }
+function clearAll() { if(confirm("Clear all unsynced tasks?")) { tasks = []; localStorage.removeItem('taskTracker_vFinal_v11'); render(); } }
+function cancelEdit(id) { tasks.find(x => x.id === id).editing = false; render(); }
+function exportCurrentToCSV() {
+  let csv = "Date,Role,Project,Task,SubTask,Notes,Time\n";
+  tasks.forEach(t => {
+    let sec = t.seconds + (t.running ? Math.floor((Date.now() - t.startTime) / 1000) : 0);
+    csv += `"${t.createdDate}","${t.role}","${t.project}","${t.task}","${t.subTask || ""}","${t.notes || ""}","${format(sec)}"\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `Tasks_${new Date().toLocaleDateString()}.csv`;
+  link.click();
+}
+</script>
+</body>
+</html>
